@@ -1,65 +1,94 @@
-import Image from "next/image";
+'use client';
+
+import { useState, useEffect, useRef } from 'react';
+import { supabase } from '../lib/supabaseClient';
+import maplibregl from 'maplibre-gl';
+import 'maplibre-gl/dist/maplibre-gl.css';
 
 export default function Home() {
+  const [view, setView] = useState('timeline');
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: '#fafafa' }}>
+      <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '80px' }}>
+        {view === 'timeline' && <TimelineView />}
+        {view === 'map' && <MapView />}
+        {view === 'profile' && <ProfileView />}
+      </div>
+
+      <div style={{ height: '70px', display: 'flex', borderTop: '1px solid #ddd', backgroundColor: 'white', position: 'fixed', bottom: 0, width: '100%', alignItems: 'center' }}>
+        <button onClick={() => setView('timeline')} style={{ flex: 1, border: 'none', background: 'white', fontWeight: view === 'timeline' ? 'bold' : 'normal' }}>🏠 ホーム</button>
+        <button onClick={() => setView('map')} style={{ flex: 1, border: 'none', background: 'white', fontWeight: view === 'map' ? 'bold' : 'normal' }}>📍 マップ</button>
+        <button onClick={() => setView('profile')} style={{ flex: 1, border: 'none', background: 'white', fontWeight: view === 'profile' ? 'bold' : 'normal' }}>👤 プロフィール</button>
+      </div>
+    </div>
+  );
+}
+
+// タイムライン画面
+function TimelineView() {
+  const [posts, setPosts] = useState<any[]>([]);
+  const [file, setFile] = useState<File | null>(null);
+  const [comment, setComment] = useState("");
+
+  useEffect(() => {
+    supabase.from('posts').select('*').order('created_at', { ascending: false }).then(({ data }) => { if (data) setPosts(data); });
+  }, []);
+
+  const handleUpload = async () => {
+    if (!file) return;
+    const fileName = `${Date.now()}_${file.name}`;
+    await supabase.storage.from('posts').upload(fileName, file);
+    const { data: urlData } = supabase.storage.from('posts').getPublicUrl(fileName);
+    await supabase.from('posts').insert([{ photo_url: urlData.publicUrl, comment: comment }]);
+    window.location.reload();
+  };
+
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>タイムライン</h2>
+      <div style={{ marginBottom: 20, padding: 10, border: '1px solid #ddd', borderRadius: 10 }}>
+        <input type="file" accept="image/*" capture="environment" onChange={(e) => setFile(e.target.files?.[0] || null)} />
+        <textarea placeholder="コメント..." onChange={(e) => setComment(e.target.value)} style={{ width: '100%', display: 'block', margin: '10px 0' }} />
+        <button onClick={handleUpload} style={{ width: '100%', padding: 10, background: '#ff4757', color: 'white', border: 'none', borderRadius: 5 }}>投稿する</button>
+      </div>
+      {posts.map((post) => (
+        <div key={post.id} style={{ marginBottom: 30, backgroundColor: 'white', padding: 15, borderRadius: 10 }}>
+          {post.photo_url && <img src={post.photo_url} style={{ width: '100%', borderRadius: 10 }} />}
+          <p>{post.comment}</p>
         </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+      ))}
+    </div>
+  );
+}
+
+// マップ画面
+function MapView() {
+  const mapContainer = useRef(null);
+  useEffect(() => {
+    const map = new maplibregl.Map({
+      container: mapContainer.current!,
+      style: { version: 8, sources: { gsi: { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/std/{z}/{x}/{y}.png'], tileSize: 256, attribution: '国土地理院' } }, layers: [{ id: 'gsi-layer', type: 'raster', source: 'gsi', minzoom: 0, maxzoom: 18 }] } as any,
+      center: [139.7454, 35.6586], zoom: 14,
+    });
+    return () => map.remove();
+  }, []);
+  return <div ref={mapContainer} style={{ width: '100%', height: '100vh' }} />;
+}
+
+// プロフィール画面
+function ProfileView() {
+  const [items, setItems] = useState<any[]>([]);
+  useEffect(() => {
+    supabase.from('user_items').select('*').then(({ data }) => { if (data) setItems(data); });
+  }, []);
+  return (
+    <div style={{ padding: 20 }}>
+      <h2>👤 プロフィール</h2>
+      <h3>ゲットしたアイテム</h3>
+      {items.map((item, i) => (
+        <div key={i} style={{ padding: 10, borderBottom: '1px solid #eee' }}>{item.item_name}</div>
+      ))}
     </div>
   );
 }
