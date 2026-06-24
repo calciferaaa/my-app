@@ -100,23 +100,50 @@ function TimelineView() {
 
 function MapView() {
   const mapContainer = useRef(null);
+  const map = useRef<maplibregl.Map | null>(null);
+
   useEffect(() => {
-    const map = new maplibregl.Map({
+    map.current = new maplibregl.Map({
       container: mapContainer.current!,
       style: { version: 8, sources: { gsi: { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], tileSize: 256, attribution: '国土地理院' } }, layers: [{ id: 'gsi-layer', type: 'raster', source: 'gsi', minzoom: 0, maxzoom: 18 }] } as any,
       center: [139.7454, 35.6586], zoom: 14,
     });
-    map.on('load', async () => {
+
+    map.current.on('load', async () => {
+      // 1. 現在地の取得とピン立て
+      if (navigator.geolocation) {
+        navigator.geolocation.getCurrentPosition((pos) => {
+          const { longitude, latitude } = pos.coords;
+          map.current?.setCenter([longitude, latitude]);
+          
+          // 青いピン（現在地）
+          const el = document.createElement('div');
+          el.style.backgroundColor = '#3b82f6';
+          el.style.width = '20px';
+          el.style.height = '20px';
+          el.style.borderRadius = '50%';
+          el.style.border = '3px solid white';
+          el.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
+          
+          new maplibregl.Marker(el)
+            .setLngLat([longitude, latitude])
+            .addTo(map.current!);
+        });
+      }
+
+      // 2. スポットの取得とピン立て
       const { data: spots } = await supabase.from('spots').select('*');
       spots?.forEach(spot => {
-        new maplibregl.Marker({ color: '#ff4757' })
+        new maplibregl.Marker({ color: '#ff4757' }) // 赤いピン（スポット）
           .setLngLat([spot.longitude, spot.latitude])
           .setPopup(new maplibregl.Popup().setHTML(`<b>${spot.name}</b><br>報酬: ${spot.item_name}`))
-          .addTo(map);
+          .addTo(map.current!);
       });
     });
-    return () => map.remove();
+
+    return () => map.current?.remove();
   }, []);
+
   return <div ref={mapContainer} style={{ width: '100%', height: 'calc(100vh - 70px)' }} />;
 }
 
