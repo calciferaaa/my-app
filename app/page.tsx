@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabaseClient';
 import maplibregl from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 
-// 距離計算関数（メートル単位）
+// --- 距離計算関数 ---
 const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
   const R = 6371e3;
   const rad = Math.PI / 180;
@@ -16,32 +16,119 @@ const getDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => 
 };
 
 export default function Home() {
-  const [view, setView] = useState('timeline');
+  const [session, setSession] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    // 最初のセッション取得
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      setLoading(false);
+    });
+
+    // 認証状態の変更を監視
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  if (loading) return <div>読み込み中...</div>;
+  if (!session) return <AuthView />; // セッションがない時だけログイン画面
+
+  return <MainApp />; // セッションがある時だけメイン画面
+}
+
+function AuthView() {
+  useEffect(() => {
+    supabase.auth.signOut();
+  }, []);
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+
+  // ログイン関数
+  const doSignIn = async () => {
+    console.log("ログインボタン押下"); // ターミナルかブラウザのコンソールに出るか確認！
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) alert(error.message);
+  };
+
+  // 新規登録関数
+  const doSignUp = async () => {
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) alert(error.message);
+  };
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', backgroundColor: '#f9fafb', fontFamily: 'sans-serif' }}>
+    <div style={{ padding: '40px', maxWidth: '400px', margin: '0 auto', fontFamily: 'sans-serif' }}>
+      <h2>ログイン / 新規登録</h2>
+      <input
+        type="email"
+        placeholder="メールアドレス"
+        value={email} // valueをバインドする
+        onChange={(e) => setEmail(e.target.value)}
+        style={{ width: '100%', marginBottom: '10px', padding: '10px', display: 'block' }}
+      />
+      <input
+        type="password"
+        placeholder="パスワード"
+        value={password} // valueをバインドする
+        onChange={(e) => setPassword(e.target.value)}
+        style={{ width: '100%', marginBottom: '20px', padding: '10px', display: 'block' }}
+      />
+      <button
+        onClick={doSignIn}
+        style={{ width: '100%', padding: '10px', background: '#3b82f6', color: 'white', border: 'none', marginBottom: '10px', cursor: 'pointer' }}
+      >
+        ログイン
+      </button>
+      <button
+        onClick={doSignUp}
+        style={{ width: '100%', padding: '10px', background: '#e5e7eb', border: 'none', cursor: 'pointer' }}
+      >
+        新規登録
+      </button>
+    </div>
+  );
+}
+
+// --- メイン画面 (これまでの全機能) ---
+function MainApp() {
+  const [view, setView] = useState('timeline');
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100vh', fontFamily: 'sans-serif' }}>
       <div style={{ flex: 1, overflowY: 'auto', paddingBottom: '90px' }}>
         {view === 'timeline' && <TimelineView />}
         {view === 'map' && <MapView />}
         {view === 'profile' && <ProfileView />}
       </div>
-      <nav style={{ height: '70px', display: 'flex', borderTop: '1px solid #eee', backgroundColor: 'white', position: 'fixed', bottom: 0, width: '100%', alignItems: 'center' }}>
-        <NavButton label="🏠 ホーム" active={view === 'timeline'} onClick={() => setView('timeline')} />
-        <NavButton label="📍 マップ" active={view === 'map'} onClick={() => setView('map')} />
-        <NavButton label="👤 プロフィール" active={view === 'profile'} onClick={() => setView('profile')} />
+      <nav style={{
+        height: '60px',
+        display: 'flex',
+        justifyContent: 'space-around',
+        alignItems: 'center',
+        borderTop: '1px solid #dbdbdb',
+        backgroundColor: 'white',
+        position: 'fixed',
+        bottom: 0,
+        width: '100%'
+      }}>
+        <button onClick={() => setView('timeline')} style={navBtnStyle}>🏠</button>
+        <button onClick={() => setView('map')} style={navBtnStyle}>🔍</button>
+        <button onClick={() => setView('profile')} style={navBtnStyle}>👤</button>
       </nav>
     </div>
   );
 }
+const navBtnStyle = { border: 'none', background: 'none', fontSize: '24px', cursor: 'pointer' };
 
-function NavButton({ label, active, onClick }: { label: string, active: boolean, onClick: () => void }) {
-  return <button onClick={onClick} style={{ flex: 1, border: 'none', background: 'transparent', fontWeight: active ? '700' : '400', color: active ? '#3b82f6' : '#9ca3af', fontSize: '12px', cursor: 'pointer' }}>{label}</button>;
-}
 
 function TimelineView() {
   const [posts, setPosts] = useState<any[]>([]);
   const [file, setFile] = useState<File | null>(null);
   const [comment, setComment] = useState("");
-  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     supabase.from('posts').select('*').order('created_at', { ascending: false }).then(({ data }) => { if (data) setPosts(data); });
@@ -49,49 +136,48 @@ function TimelineView() {
 
   const handleUpload = async () => {
     if (!file) return;
-    setLoading(true);
-
     navigator.geolocation.getCurrentPosition(async (pos) => {
       const { latitude, longitude } = pos.coords;
-      
-      // 1. スポット判定 (50m以内)
       const { data: spots } = await supabase.from('spots').select('*');
-      const nearbySpot = spots?.find(s => getDistance(latitude, longitude, s.latitude, s.longitude) < 100);
+      const nearbySpot = spots?.find(s => getDistance(latitude, longitude, s.latitude, s.longitude) < 50);
 
       const fileName = `${Date.now()}_${file.name}`;
       await supabase.storage.from('posts').upload(fileName, file);
       const { data: urlData } = supabase.storage.from('posts').getPublicUrl(fileName);
-      
-      // 2. 投稿を保存（nearbySpotがあればitem_nameを入れる）
-      await supabase.from('posts').insert([{ 
-        photo_url: urlData.publicUrl, 
-        comment, 
-        item_name: nearbySpot?.item_name || null 
-      }]);
+      await supabase.from('posts').insert([{ photo_url: urlData.publicUrl, comment, item_name: nearbySpot?.item_name || null }]);
 
-      // 3. アイテム所有リストに保存
-      if (nearbySpot) {
-        await supabase.from('user_items').insert([{ 
-          spot_name: nearbySpot.name, 
-          item_name: nearbySpot.item_name 
-        }]);
-        alert(`🎉「${nearbySpot.item_name}」をゲットしました！`);
-      }
+      if (nearbySpot) await supabase.from('user_items').insert([{ spot_name: nearbySpot.name, item_name: nearbySpot.item_name }]);
       window.location.reload();
     });
   };
 
-  return (
-    <div style={{ padding: '20px', maxWidth: '500px', margin: '0 auto' }}>
-      <h2 style={{ fontSize: '24px', fontWeight: '800' }}>タイムライン</h2>
-      <input type="file" onChange={(e) => setFile(e.target.files?.[0] || null)} />
-      <textarea placeholder="コメント..." onChange={(e) => setComment(e.target.value)} style={{ width: '100%', margin: '10px 0', padding: '10px' }} />
-      <button onClick={handleUpload} style={{ width: '100%', padding: '12px', background: '#3b82f6', color: 'white', border: 'none', borderRadius: '10px' }}>{loading ? '投稿中...' : '写真を投稿してゲット！'}</button>
-      {posts.map((post) => (
-        <div key={post.id} style={{ marginTop: '20px', padding: '10px', background: 'white', borderRadius: '15px' }}>
-          {post.photo_url && <img src={post.photo_url} style={{ width: '100%', borderRadius: '10px' }} />}
-          <p>{post.comment}</p>
-          {post.item_name && <small style={{ color: '#3b82f6' }}>✨ ゲットしたアイテム: {post.item_name}</small>}
+return (
+    <div style={{ padding: '0', backgroundColor: 'white', maxWidth: '600px', margin: '0 auto' }}>
+      {posts.map(p => (
+        <div key={p.id} style={{ marginBottom: '40px' }}>
+          {/* 写真 */}
+          <div style={{ width: '100%', aspectRatio: '1/1', backgroundColor: '#efefef' }}>
+            <img src={p.photo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+          
+          {/* アクションボタン */}
+          <div style={{ padding: '12px 16px', display: 'flex', gap: '15px' }}>
+            <span style={{ fontSize: '24px' }}>🤍</span>
+            <span style={{ fontSize: '24px' }}>💬</span>
+          </div>
+
+          {/* キャプション */}
+          <div style={{ padding: '0 16px' }}>
+            <p style={{ margin: '0', fontSize: '14px', lineHeight: '1.4' }}>
+              <span style={{ fontWeight: 'bold', marginRight: '8px' }}>user_name</span>
+              {p.comment}
+            </p>
+            {p.item_name && (
+              <p style={{ color: '#0095f6', fontSize: '13px', marginTop: '8px', fontWeight: '600' }}>
+                📍 {p.item_name} を発見！
+              </p>
+            )}
+          </div>
         </div>
       ))}
     </div>
@@ -100,63 +186,108 @@ function TimelineView() {
 
 function MapView() {
   const mapContainer = useRef(null);
-  const map = useRef<maplibregl.Map | null>(null);
 
   useEffect(() => {
-    map.current = new maplibregl.Map({
+    const map = new maplibregl.Map({
       container: mapContainer.current!,
-      style: { version: 8, sources: { gsi: { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], tileSize: 256, attribution: '国土地理院' } }, layers: [{ id: 'gsi-layer', type: 'raster', source: 'gsi', minzoom: 0, maxzoom: 18 }] } as any,
-      center: [139.7454, 35.6586], zoom: 14,
+      style: { 
+        version: 8, 
+        sources: { 
+          gsi: { type: 'raster', tiles: ['https://cyberjapandata.gsi.go.jp/xyz/pale/{z}/{x}/{y}.png'], tileSize: 256, attribution: '国土地理院' } 
+        }, 
+        layers: [{ id: 'gsi-layer', type: 'raster', source: 'gsi', minzoom: 0, maxzoom: 18 }] 
+      } as any,
+      center: [139.7454, 35.6586], 
+      zoom: 14,
     });
 
-    map.current.on('load', async () => {
-      // 1. 現在地の取得とピン立て
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition((pos) => {
-          const { longitude, latitude } = pos.coords;
-          map.current?.setCenter([longitude, latitude]);
-          
-          // 青いピン（現在地）
-          const el = document.createElement('div');
-          el.style.backgroundColor = '#3b82f6';
-          el.style.width = '20px';
-          el.style.height = '20px';
-          el.style.borderRadius = '50%';
-          el.style.border = '3px solid white';
-          el.style.boxShadow = '0 0 10px rgba(0,0,0,0.3)';
-          
-          new maplibregl.Marker(el)
-            .setLngLat([longitude, latitude])
-            .addTo(map.current!);
-        });
+    const geolocate = new maplibregl.GeolocateControl({
+      positionOptions: { enableHighAccuracy: true },
+      trackUserLocation: true,
+      showUserLocation: true
+    });
+    map.addControl(geolocate);
+
+    // ロード完了後にすべてを実行
+    map.on('load', async () => {
+      // 1. 現在地の取得
+      geolocate.trigger();
+
+      // 2. スポットデータの取得とピンの設置
+      const { data: spots, error } = await supabase.from('spots').select('*');
+      
+      if (error) {
+        console.error("スポット取得エラー:", error);
+        return;
       }
 
-      // 2. スポットの取得とピン立て
-      const { data: spots } = await supabase.from('spots').select('*');
-      spots?.forEach(spot => {
-        new maplibregl.Marker({ color: '#ff4757' }) // 赤いピン（スポット）
-          .setLngLat([spot.longitude, spot.latitude])
-          .setPopup(new maplibregl.Popup().setHTML(`<b>${spot.name}</b><br>報酬: ${spot.item_name}`))
-          .addTo(map.current!);
-      });
+      if (spots) {
+        spots.forEach(spot => {
+          // ピン（マーカー）を作成
+          new maplibregl.Marker({ color: '#ff4757' })
+            .setLngLat([spot.longitude, spot.latitude])
+            .setPopup(new maplibregl.Popup().setHTML(`<h3>${spot.name}</h3>`))
+            .addTo(map);
+        });
+      }
     });
 
-    return () => map.current?.remove();
+    return () => map.remove();
   }, []);
 
   return <div ref={mapContainer} style={{ width: '100%', height: 'calc(100vh - 70px)' }} />;
 }
 
 function ProfileView() {
-  const [items, setItems] = useState<any[]>([]);
+  const [posts, setPosts] = useState<any[]>([]);
+
   useEffect(() => {
-    supabase.from('user_items').select('*').then(({ data }) => { if (data) setItems(data); });
+    supabase.from('posts').select('*').then(({ data }) => {
+      if (data) setPosts(data);
+    });
   }, []);
+
+  // ログアウト処理
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+    window.location.reload(); // ログアウト後に画面をリロードしてログイン画面へ
+  };
+
   return (
-    <div style={{ padding: '20px' }}>
-      <h2>👤 プロフィール</h2>
-      <h3>コレクション</h3>
-      {items.map((i, idx) => <div key={idx} style={{ padding: '10px', background: '#fff', margin: '5px 0', borderRadius: '8px' }}>{i.item_name}</div>)}
+    <div style={{ padding: '20px', maxWidth: '600px', margin: '0 auto' }}>
+      {/* ヘッダー：ここにログアウトボタンを配置 */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '20px' }}>
+          <div style={{ width: '80px', height: '80px', borderRadius: '50%', backgroundColor: '#eee' }} />
+          <div>
+            <h2 style={{ margin: 0, fontSize: '18px' }}>User Profile</h2>
+            <p style={{ margin: '5px 0', color: '#666' }}>{posts.length} 投稿</p>
+          </div>
+        </div>
+        {/* ログアウトボタン */}
+        <button 
+          onClick={handleSignOut}
+          style={{ 
+            padding: '8px 16px', 
+            borderRadius: '8px', 
+            border: '1px solid #dbdbdb', 
+            background: 'white', 
+            cursor: 'pointer',
+            fontSize: '12px'
+          }}
+        >
+          ログアウト
+        </button>
+      </div>
+
+      {/* 投稿グリッド */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '2px' }}>
+        {posts.map((p) => (
+          <div key={p.id} style={{ aspectRatio: '1/1', backgroundColor: '#efefef' }}>
+            <img src={p.photo_url} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
